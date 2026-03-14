@@ -1,479 +1,260 @@
-# Chat Bot with Memory
 
-A production-ready conversational AI assistant with advanced memory management, session persistence, query understanding, and real-time deployment capability.
+# LLM chat bot - Vietnamese Q&A System in Vietnamese's legal document 
+In this project, I build a complete Q&A chatbot related to Vietnamese's legal document
 
-## App Interface
+Link dataset : [Link data](https://drive.google.com/drive/folders/1HyF8-EfL4w0G3spBbhcc0jTOqdc4XUhB)
 
-![Chat Bot UI](assets/UI.png)
+# Table of content
 
-*Streamlit-based web interface with rich markdown support, styled chat bubbles, and orange theme for an intuitive conversational experience.*
+<!--ts-->
+   * [Project structure](#project-structure)
+   * [Getting started](#getting-started)
+      * [Prepare enviroment](#prepare-enviroment)
+      * [Running application docker container in local](#running-application-docker-container-in-local)
+   * [Application services](#application-services)
+      * [RAG (Retrieval-Augmented Generation)](#rag-retrieval-augmented-generation)
+        * [System overview](#system-overview)
+        * [Build Vector Database and Elasticsearch](#buiding-vectorDB-and-elasticsearch)
+        * [RAG flow answering](#rag-flow-answering)
+        * [Dual LLM Backend](#dual-llm-backend)
+        * [Finetune rerank model](#finetune-rerank-model)
+        * [Finetune LLM for answer generation](#finetune-LLM)
+   * [Demo](#demo)
+<!--te-->
 
-## Features
-
-### Current Features ✅
-
-- **Conversation Memory**: Persistent session storage with automatic context retrieval
-- **Session Summarization**: Token-aware summarization when conversations exceed threshold (default 10K tokens)
-- **Query Understanding**: 
-  - Ambiguous query detection
-  - Query rewriting for clarity
-  - Context augmentation
-  - Clarifying question generation
-- **Multi-LLM Support**: 
-  - Google Gemini (primary)
-  - Ollama (local/self-hosted fallback)
-- **Conversation Logging**: Automatic JSON Lines logging with metadata (timestamps, token counts, ambiguity flags)
-- **Rich UI**: Streamlit-based web interface with markdown rendering, styled chat bubbles, orange theme
-- **Comprehensive Testing**: 6 test suites covering core functionality
-
-## Query Understanding Pipeline
-
-### 🔄 New Workflow (v1.0+)
-
-The query understanding pipeline processes every user query through 6 sequential steps to ensure clarity before LLM response generation:
-
-```mermaid
-graph TD
-    A["🔤 USER QUERY"]
-    B["STEP 1: SPELLING CHECK<br/>Rule-based | No LLM<br/>Correct typos & grammar"]
-    C["STEP 2: AMBIGUITY DETECTION<br/>🤖 Gemini fallback<br/>6 heuristic rules first"]
-    D["CONTINUE ✓"]
-    E["Fixable with context?"]
-    F["STEP 6b: CLARIFYING QUESTIONS<br/>🤖 Gemini<br/>Ask user for clarity"]
-    G["STEP 3: ANSWERABILITY CHECK<br/>🤖 MiniLM<br/>Similarity matching"]
-    H["CONTINUE ✓"]
-    I["CLARIFYING QUESTIONS"]
-    J["STEP 4: CONTEXT RETRIEVAL<br/>Rule-based | No LLM<br/>Memory augmentation"]
-    K["STEP 5: QUERY REFINEMENT<br/>🤖 Qwen 2.5-1.5B<br/>Pronoun → Entity"]
-    L["STEP 6: LLM RESPONSE GENERATION<br/>🤖 Gemini<br/>Generate + log"]
-    M["✅ RESPONSE + METADATA<br/>Answer | Tokens | Refinement"]
-
-    A --> B --> C
-    C -->|CLEAR| D
-    C -->|AMBIGUOUS| E
-    E -->|YES| D
-    E -->|NO| F
-    D --> G
-    G -->|ANSWERABLE| H
-    G -->|NOT ANSWERABLE| I
-    H --> J --> K --> L --> M
-    F --> M
-    I --> M
-
-    class A input
-    class B,J stepNeutral
-    class C,L stepOrange
-    class D,H success
-    class E decision
-    class F,I danger
-    class G,K stepPurple
-    class M success
-
-    classDef input fill:#e3f2fd,stroke:#0d47a1,stroke-width:3px,color:#0d47a1,font-weight:bold
-    classDef stepNeutral fill:#eeeeee,stroke:#424242,stroke-width:3px,color:#212121,font-weight:bold
-    classDef stepOrange fill:#ffe0b2,stroke:#e65100,stroke-width:3px,color:#bf360c,font-weight:bold
-    classDef stepPurple fill:#e1bee7,stroke:#6a1b9a,stroke-width:3px,color:#4a148c,font-weight:bold
-    classDef success fill:#c8e6c9,stroke:#1b5e20,stroke-width:3px,color:#1b5e20,font-weight:bold
-    classDef danger fill:#ffccbc,stroke:#bf360c,stroke-width:3px,color:#bf360c,font-weight:bold
-    classDef decision fill:#fff3e0,stroke:#ef6c00,stroke-width:3px,color:#e65100,font-weight:bold
-  ```
-
-### Components
-
-#### 1. **Spelling Checker** (`app/query_understanding/spelling_check.py`)
-```python
-# Corrects typos automatically
-checker = SpellingChecker()
-result = checker.check("whats the best libary for ML?")
-# → "what's the best library for ML?"
-```
-
-#### 2. **Ambiguity Detector** (`app/query_understanding/ambiguity.py`)
-```python
-# Detects 6 types of ambiguous queries
-detector = AmbiguityDetector(llm_client)
-analysis = await detector.detect("How does it compare?", messages)
-# → is_ambiguous=True, rule="RULE 1", reason="Pronoun 'it' without clear antecedent"
-```
-
-#### 3. **Query Refiner** (`app/query_understanding/query_refiner.py`)
-```python
-# Replaces pronouns with entities using lightweight LLM
-refiner = QueryRefiner(llm_client)  # Uses Qwen2.5-1.5B by default
-refined = await refiner.refine("How does it perform?")
-# Cache: ["TensorFlow is fast", "PyTorch is flexible"]
-# → "How does TensorFlow perform?" or "How does PyTorch perform?"
-```
-
-**Query Refinement Details:**
-- **Pronoun Detection**: it, they, them, this, that, he, she
-- **Entity Extraction**: From last 3 queries (lightweight cache)
-- **LLM Rewriting**: Qwen2.5-1.5B model (1.5B params vs 8B for llama3.1)
-- **Performance**: 2-3x faster than standard models
-- **Fallback**: Auto-fallback to active LLM if Qwen unavailable
-
-#### 4. **Context Augmenter** (`app/query_understanding/context.py`)
-```python
-# Intelligently retrieves session memory
-augmenter = ContextAugmenter()
-context, fields = augmenter.augment(
-    query="How does it compare?",
-    messages=messages,
-    session_memory=memory,
-    needed_fields=["key_facts", "decisions"]
-)
-```
-
-#### 5. **Clarifying Question Generator** (`app/query_understanding/clarifier.py`)
-```python
-# Generates clarifying questions if query still unclear
-clarifier = ClarifyingQuestionGenerator(llm_client)
-questions = await clarifier.generate(
-    "What should I choose?",  # Missing object
-    messages=messages
-)
-# → ["Choose what? (library, algorithm, etc.)",
-#    "What's your main priority? (speed, accuracy, etc.)",
-#    "What's your use case?"]
-```
-
----
-
-## Logging System
-
-The system generates **three types of detailed logs** for analysis:
-
-### 📊 Log Types
-
-| Log Type | File | Contents | Use Case |
-|----------|------|----------|----------|
-| **Conversation** | `conversations_*.log` | User-assistant pairs + metadata | Analyze conversations, user behavior |
-| **User Query** | `user_queries_*.log` | Original → refined query + context | Debug ambiguity detection, refinement |
-| **Session Summary** | `session_summaries_*.log` | Session facts, decisions, summary | Understand session evolution |
-
-### 🔍 Log Structure
-
-#### **Conversation Log** (`conversations_*.log`)
-```json
-{
-  "timestamp": "2026-02-04T11:38:06.123456",
-  "session_id": "session-123",
-  "user": "How does it perform?",
-  "assistant": "TensorFlow performs well for...",
-  "metadata": {
-    "is_answerable": true,
-    "token_count": 1234,
-    "summarization_triggered": false,
-    "pipeline_metadata": {
-      "spelling_check_used": false,
-      "ambiguity_llm_used": true,
-      "answerability_check_passed": true,
-      "context_expanded": true,
-      "refinement_applied": true,
-      "llm_call_made": true
-    },
-    "llm_usage_percentage": "45.2%"
-  }
-}
-```
-
-#### **User Query Log** (`user_queries_*.log`)
-```json
-{
-  "timestamp": "2026-02-04T11:38:06.123456",
-  "session_id": "session-123",
-  "original_query": "How does it perform?",
-  "is_ambiguous": true,
-  "rewritten_query": "How does TensorFlow perform?",
-  "needed_context_from_memory": [
-    "user_profile.prefs: [wants speed, flexibility]",
-    "key_facts: [using TensorFlow in project]",
-    "decisions: [chose TensorFlow over PyTorch]"
-  ],
-  "clarifying_questions": [],
-  "final_augmented_context": "Recent discussion: TensorFlow chosen for project..."
-}
-```
-
-#### **Session Summary Log** (`session_summaries_*.log`)
-```json
-{
-  "timestamp": "2026-02-04T11:38:06.123456",
-  "session_id": "session-123",
-  "session_summary": {
-    "user_profile": {
-      "prefs": ["speed", "flexibility"],
-      "constraints": ["budget: limited", "team: 2 engineers"]
-    },
-    "key_facts": [
-      "Building ML system for production",
-      "Team has PyTorch experience"
-    ],
-    "decisions": [
-      "Chose TensorFlow for deployment",
-      "Using transfer learning approach"
-    ],
-    "open_questions": [
-      "How to optimize training speed?"
-    ]
-  },
-  "message_range_summarized": {
-    "from": 0,
-    "to": 42
-  }
-}
-```
-
----
-
-## Running Tests & Generating Logs
-
-### 📝 Test Scripts Location
-```
-tests/
-├── test_ambiguous_query_detection.py    ← Ambiguity detection + all 6 rules
-├── test_query_refinement.py              ← Query refinement with LLM
-├── test_session_summarization.py         ← Session memory & summarization
-├── test_conversation_logging.py          ← Conversation persistence
-├── test_cli_demo.py                      ← CLI interface testing
-├── test_streamlit_app.py                 ← Streamlit UI testing
-└── run_tests.py                          ← Run all tests
-```
-
-### 🚀 Running Tests & Generating Logs
-
-#### **1. Test Ambiguity Detection (All 6 Rules)**
+# Project structure
 ```bash
-# Run: Tests all 6 ambiguity rules with natural conversation
-python tests/test_ambiguous_query_detection.py
-
-# Generates logs:
-# logs/ambiguous_query_detection/
-# ├── conversations_test.log      (user-assistant pairs with metadata)
-# ├── user_queries_test.log        (original + rewritten queries, ambiguity flags)
-# └── session_summaries_test.log   (session memory evolution)
-
-# Example output:
-# [✓] Test: Ambiguous query detection
-# [✓] Query 1: "We're building a machine learning system" → CLEAR (100% confidence)
-# [✓] Query 3: "How does it perform?" → AMBIGUOUS (RULE 1: pronoun without antecedent)
-# [✓] Query 7: "Which one do you prefer?" → AMBIGUOUS (RULE 1c: which-one without context)
-# [✓] Query 23: "It?" → AMBIGUOUS (RULE 2: very short question)
-# [✓] Overall: 24/28 queries correctly classified (85.7% accuracy)
+├── backend                                   
+│   ├── .env                                    # Environment variables (API keys, endpoints)
+│   ├── requirements.txt                        # backend dependencies for the backend 
+│   ├── entrypoint.sh                           # script run backend  
+│   ├── src                                     # Source code for the backend
+│   │   ├── search_document                             
+│   │   │   ├── combine_search.py              # ensemble result from Bge-m3, e5
+│   │   │   ├── rerank.py                      # reranking with finetuned BGE-reranker-v2-m3
+│   │   │   ├── search_elastic.py              # Search using elasticsearch
+│   │   │   ├── search_with_bge.py             # Search using Bge-m3 (Qdrant Cloud)
+│   │   │   └── search_with_e5.py              # Search using Multilingual-e5-large (Qdrant Cloud)
+│   │   ├── agent.py                            # LangChain ReAct agent with Tavily search (Gemini/vLLM)
+│   │   ├── app.py                              # Entry point for the FastAPI backend + model switch API
+│   │   ├── brain.py                            # Dual LLM logic (Gemini + vLLM fallback), routing, rewriting
+│   │   ├── cache.py                            # Redis cache for conversation IDs
+│   │   ├── database.py                         # Celery task queue configuration
+│   │   ├── models.py                           # MongoDB models for chat history
+│   │   ├── tavily_search.py                    # Tavily internet search tool
+│   │   ├── schemas.py                          # Pydantic data schemas for API endpoints
+│   │   ├── tasks.py                            # Celery tasks: routing, RAG, generation
+│   │   └── utils.py                            # Utility functions (logging, ID generation)                  
+├── chatbot-ui                                  # Frontend chatbot application (Streamlit)
+│   ├── chat_interface.py                       # Chatbot interface with model selector sidebar
+│   ├── config.toml                             # Configuration file for chatbot                  
+│   ├── entrypoint.sh                           # Entrypoint script for chatbot
+│   ├── requirements.txt                        # Python dependencies for chatbot
+├── finetune_llm                                # Directory for finetune llm
+│   ├── download_model.py                       # download base model          
+│   ├── finetune.py                             # finetune LLM for answer generation (QLoRA + SFTTrainer)
+│   ├── gen_data.py                             # Generate training data via GPT-4o-mini
+│   ├── merge_with_base.py                      # Merge finetuned LoRA weights with base model
+│   ├── test_model.py                           # Run inference with merged model via vLLM
+│   ├── evaluate_finetuned_model.py             # Evaluate correctness with LlamaIndex evaluator
+│   └── requirements.txt                        # Finetuning dependencies
+├── images                                      # Directory for storing image assets
+├── retrieval                                   # Retrieval folder
+│   ├── FlagEmbedding                           # folder include code finetune
+│   ├── hard_negative_bge_round1.py             # search using bge-m3
+│   ├── hard_negative_e5.py                     # search using e5
+│   ├── create_data_rerank.py                   # create data for reranking   
+│   ├── finetune.sh                             # Script to finetuning bge-reranker-v2-m3
+│   └── setup_env.sh                            # Script to create env
 ```
+# Getting started
 
-#### **2. Test Query Refinement (Lightweight Model)**
-```bash
-# Run: Tests pronoun replacement with Qwen2.5-1.5B model
-python tests/test_query_refinement.py
+To get started with this project, we need to do the following
 
-# Prerequisites: Ollama running with qwen2.5:1.5b pulled
-# ollama pull qwen2.5:1.5b
-# ollama serve
-
-# Generates logs:
-# logs/query_refinement/
-# ├── conversations_test.log
-# ├── user_queries_test.log        (shows rewritten_query field populated)
-# └── session_summaries_test.log
-
-# Example output:
-# [Original] "How does it perform?"
-# [Refined]  "How does TensorFlow perform?" ✓
-# [Cache]    ["TensorFlow is fast", "PyTorch is flexible"]
-```
-
-#### **3. Test Session Summarization**
-```bash
-# Run: Tests token-aware summarization when context exceeds threshold
-python tests/test_session_summarization.py
-
-# Generates logs:
-# logs/session_summarization/
-# ├── conversations_test.log
-# ├── user_queries_test.log
-# └── session_summaries_test.log  (shows summarization_triggered + summary content)
-
-# Example output:
-# Token count: 2500
-# [✓] Summarization triggered at 10000 tokens
-# [✓] Extracted 5 key facts
-# [✓] Tracked 3 decisions
-# [✓] Found 2 open questions
-```
-
-#### **4. Run All Tests**
-```bash
-# Run entire test suite
-python tests/run_tests.py
-
-# Generates all logs across test directories:
-logs/
-├── ambiguous_query_detection/
-│   ├── conversations_test.log
-│   ├── user_queries_test.log
-│   └── session_summaries_test.log
-├── query_refinement/
-│   ├── conversations_test.log
-│   ├── user_queries_test.log
-│   └── session_summaries_test.log
-├── session_summarization/
-│   ├── conversations_test.log
-│   ├── user_queries_test.log
-│   └── session_summaries_test.log
-└── ...
-```
-
-## Quick Start
-
-### Prerequisites
-- Python 3.10+
-- Docker (for containerized deployment)
-- API Keys: Google Generative AI (Gemini)
-
-### Installation
-
-1. **Clone and Setup**
-```bash
-git clone <repo-url>
-cd chat-bot-with-memory
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-2. **Configure Environment**
-```bash
-cp .env.example .env
-# Edit .env with your API keys:
-# - GOOGLE_API_KEY
-# - OLLAMA_HOST (optional, for fallback)
-```
-
-3. **Run Locally**
-
-**Option A: CLI Demo**
-```bash
-python cli_demo.py
-```
-
-**Option B: Streamlit UI**
-```bash
-streamlit run streamlit_app.py
-```
-
-**Option C: FastAPI Backend**
-```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Docker Deployment (Local)
-
-**API Service**
-```bash
-docker build -t chat-bot-api .
-docker run -e PORT=8000 -e GOOGLE_API_KEY=your-key -p 8000:8000 chat-bot-api
-```
-
-**Streamlit UI**
-```bash
-docker build -f Dockerfile.streamlit -t chat-bot-ui .
-docker run -e PORT=8501 -p 8501:8501 chat-bot-ui
-```
-
-## File Structure
-
-```
-chat-bot-with-memory/
-├── app/
-│   ├── main.py              # FastAPI entry point
-│   ├── api/                 # API endpoints
-│   │   ├── chat.py
-│   │   ├── docs.py          # Document upload (future)
-│   │   └── auth.py          # Authentication (future)
-│   ├── core/
-│   │   ├── pipeline.py      # Main orchestrator
-│   │   ├── config.py        # Configuration
-│   │   ├── prompt_builder.py
-│   │   └── token_counter.py
-│   ├── llm/
-│   │   ├── client.py        # Base LLM client
-│   │   ├── gemini_client.py
-│   │   ├── ollama_client.py
-│   │   └── json_guard.py    # JSON parsing utilities
-│   ├── memory/
-│   │   ├── session_store.py # Session persistence
-│   │   ├── schemas.py       # Data models
-│   │   ├── summarizer.py    # Token-aware summarization
-│   │   └── schemas.py
-│   ├── query_understanding/
-│   │   ├── ambiguity.py     # Detect ambiguous queries
-│   │   ├── clarifier.py     # Generate clarifying questions
-│   │   ├── context.py       # Context augmentation
-│   │   ├── rewrite.py       # Query rewriting
-│   │   └── schemas.py
-│   ├── utils/
-│   │   ├── logging.py       # ConversationLogger
-│   │   └── __init__.py
-│   └── __init__.py
-├── tests/
-│   ├── test_session_summarization.py
-│   ├── test_ambiguous_query_detection.py
-│   ├── test_query_refinement.py
-│   ├── test_conversation_logging.py
-│   ├── test_cli_demo.py
-│   ├── test_streamlit_app.py
-│   └── run_tests.py
-├── data/                    # Persistent data
-│   ├── sessions/            # Session summaries (JSON)
-│   └── conversations/       # Conversation logs (JSONL)
-├── logs/                    # Application logs
-├── cli_demo.py              # CLI interface
-├── streamlit_app.py         # Streamlit web UI
-├── Dockerfile               # API service container
-├── Dockerfile.streamlit     # Streamlit UI container
-```
-
-## Environment Variables
+## Prepare enviroment 
+Install all dependencies dedicated to the project in local
 
 ```bash
-# LLM Configuration
-GOOGLE_API_KEY=your-gemini-api-key
-OLLAMA_HOST=http://localhost:11434  # For fallback
-
-# Session Management
-SESSION_TOKEN_THRESHOLD=10000        # Summarize at this token count
-SESSION_STORAGE_TYPE=file            # or 'redis'
-REDIS_URL=redis://localhost:6379     # If using Redis
+python -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+pip install -r chatbot-ui/requirements.txt
 ```
 
-Run specific test:
+## Configure environment variables
+
+Copy or edit `backend/.env` with your credentials:
+
 ```bash
-pytest tests/test_session_summarization.py -v
+GEMINI_API_KEY = your-gemini-api-key-here        # Google Gemini API key
+TAVILY_API_KEY = your-tavily-api-key-here        # Tavily search API key
+QDRANT_URL = https://your-cluster.cloud.qdrant.io:6333   # Qdrant Cloud endpoint
+QDRANT_API_KEY = your-qdrant-api-key-here        # Qdrant Cloud API key
+VLLM_BASE_URL = http://localhost:8000/v1         # vLLM server endpoint (for finetuned model)
+VLLM_MODEL_NAME = 1TuanPham/T-VisStar-7B-v0.1   # Model name served by vLLM
 ```
 
-**Session Management**
+## Start application
+
+**Backend (FastAPI + Celery worker):**
 ```bash
-# View session info
-python session_manager.py -i default_session
-
-# Delete session
-python session_manager.py -d default_session
-
-# Delete all sessions
-python session_manager.py -d
+sh backend/entrypoint.sh
 ```
 
-## License
+**Chatbot UI (Streamlit):**
+```bash
+sh chatbot-ui/entrypoint.sh
+```
 
-MIT
+**(Optional) Serve finetuned model via vLLM:**
+```bash
+python -m vllm.entrypoints.openai.api_server \
+    --model path/to/merged_model \
+    --host 0.0.0.0 --port 8000
+```
 
-## Support
+> **Note:** External services (Redis, MongoDB, Qdrant Cloud, Elasticsearch) must be running/accessible before starting the backend.
 
-For issues, questions, or feature requests, open a GitHub issue.
+# Application services 
 
----
+## RAG (Retrieval-Augmented Generation) 
 
-**Last Updated**: February 2026
-**Current Version**: 1.0.0
-**Status**: Production Ready (Core Features)
+### System overview
+
+![rag_system](images/rag_flow.jpg)
+
+### Build Vector Database and Elasticsearch 
+- Because the size of each rule is quite long, the first step will need to be chunked into smaller parts. Then these chunks will be passed through 2 embedding models, Bge-m3 and Multilingual-e5-large, and finally these embedding vectors  will be stored in Qdrant.
+- Additionally, these rules are also saved to elasticsearch to enhance the accuracy of retrieval based on lexical matching. 
+
+### RAG flow answering
+
+- **Routing user's intent**: Initially, based on the current query and chat history, determine whether this user's intent is chitchat or law topic. The `Gemini 2.0 Flash` model (or the finetuned model via vLLM) combined with `few-shot prompting` is used to perform this intent determination. If the user's intent is chitchat, it will go through the LLM to return the final answer. Else, going to query reflection step.
+
+- **Query reflection**: Chat history and current query will be rewritten into a single sentence with more complete meaning for easier retrieval. The model used in this step is `Gemini 2.0 Flash` (with automatic fallback to the finetuned vLLM model).
+
+- **Retrieval Relevant Documents**: The rewritten query will be passed through two embedding models, Bge-m3 and Multilingual-e5-large, then **Qdrant Cloud** will be used to retrieve semantically related documents. Besides, Elasticsearch is also used for retrieval based on lexical matching. Finally, to avoid losing relevant documents during retrieval, all retrieved documents were merged and duplicates were removed.
+
+- **Reranking**: If reranking is not used, the number of retrieved documents is quite large. If this entire number of documents is put into the LLM, it may exceed the model's input token limit and be expensive. If the number of documents is small (small top_k), it may lead to the loss of related documents. The top-k documents retrieved from the previous step will be passed through the rerank model to re-rank the scores and get the top5 documents with the highest scores.
+
+- **Generating Final Answer**: The LLM combines the top5 documents after reranking step with the user's query and chat history to generate a response. In the prompt for the LLM I specified that it will return 'no' if the retrieved document does not contain the answer, so if the response is different from 'no' then it will be the final answer. If the response is 'no' then it will call the search tool in the next step to get more information.
+
+- **Tool call and Generation**: Use the **LangChain ReAct agent** with the Tavily search tool to search for content on the internet related to the query and then feed this content back to the LLM to generate answers. The agent supports both Gemini and the finetuned vLLM model as its backbone.
+
+### Dual LLM Backend
+
+The system supports two LLM backends that can be switched at runtime:
+
+| Backend | Model | Description |
+|---------|-------|-------------|
+| **Gemini (Cloud API)** | `gemini-2.0-flash` | Google's cloud-hosted model via `google-generativeai` SDK. Default when `GEMINI_API_KEY` is configured. |
+| **Finetuned Model (vLLM)** | `1TuanPham/T-VisStar-7B-v0.1` | Self-hosted finetuned Vietnamese legal QA model served via vLLM's OpenAI-compatible API. |
+
+**How it works:**
+- A global `USE_GEMINI` flag in `brain.py` controls which backend is active.
+- On startup, if a valid `GEMINI_API_KEY` is detected, Gemini is used by default.
+- If Gemini fails (API key missing, timeout, etc.), the system **automatically retries up to 3 times** with exponential backoff, then **falls back to the finetuned vLLM model**.
+- Users can manually switch models from the **Streamlit sidebar** ("Gemini (Cloud API)" / "Finetuned Model (vLLM)").
+- The backend also exposes REST endpoints for model management:
+  - `GET /model/status` — returns the currently active model
+  - `POST /model/switch` — switch between `"gemini"` and `"finetuned"`
+  - `POST /chat/complete` — accepts optional `use_model` field per request
+
+### Key technology migrations
+
+| Component | Before | After |
+|-----------|--------|-------|
+| **LLM** | OpenAI GPT-4o-mini | Google Gemini 2.0 Flash + finetuned model via vLLM |
+| **Agent framework** | LlamaIndex ReActAgent | LangChain ReAct agent (`create_react_agent` + `AgentExecutor`) |
+| **Vector database** | Qdrant (local, `localhost:6333`) | Qdrant Cloud (authenticated via `QDRANT_URL` + `QDRANT_API_KEY`) |
+| **Agent LLM** | LlamaIndex OpenAI LLM | `ChatGoogleGenerativeAI` / `ChatOpenAI` (vLLM) via LangChain |
+
+### Finetune rerank model
+Create enviroment 
+```bash
+cd retrieval
+sh setup_env.sh
+```
+#### Create data finetune
+- Train data should be a json file, where each line is a dict like this:
+
+```shell
+{"query": str, "pos": List[str], "neg":List[str]}
+```
+`query` is the query, and `pos` is a list of positive texts, `neg` is a list of negative texts. 
+- For each embedding model => will take the top 25 chunks with the highest similarity to each query. If the chunk is in the labeled data, it will be assigned as positive and vice versa, it will be negative => Then the results of these embedding models will be summarized.
+
+- Follow the steps below to create the training dataset
+
+```bash
+Step1: cd retrieval
+Step2: CUDA_VISIBLE_DEVICES=0 python create_data_rerank.py
+```
+
+#### Finetune BGE-v2-m3
+Finetune BGE-v2-m3 with parameters: 
+
+    - epochs: 6
+    - learning_rate: 1e-5
+    - batch_size = 2
+
+Run script for training
+```bash
+sh finetune.sh
+```
+### Finetune LLM for answer generation
+#### Create + format training data
+- The training data will be in conversational format.
+```shell
+{"messages": [{"role": "system", "content": "You are..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
+{"messages": [{"role": "system", "content": "You are..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
+{"messages": [{"role": "system", "content": "You are..."}, {"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
+```
+- Follow the steps below to create the training + test dataset
+```bash
+Step1: cd finetune_llm
+Step2: python gen_data.py
+```
+- The number of training dataset are 10000 samples and the number of test dataset are 1000 samples
+
+#### Finetune LLM
+- The base model I used for finetune is [1TuanPham/T-VisStar-7B-v0.1](https://huggingface.co/1TuanPham/T-VisStar-7B-v0.1). This model ranks quite high on the VMLU Leaderboard of Fine-tuned Models
+- I used the [SFTTrainer](https://huggingface.co/docs/trl/sft_trainer) from trl library to finetune this model. Beside, I user [QLora](https://arxiv.org/abs/2305.14314) technique to reduce the memory footprint of large language models during finetuning, without sacrificing performance by using quantization.
+
+Run script for training
+```bash
+CUDA_VISIBLE_DEVICES=0 python finetune.py
+```
+- Below are the results for the training process on WanDB
+![Tracking training](images/tracking_finetune_llm.png)
+
+- Merge weight with model base
+Run scrip for merge
+```bash
+python merge_with_base.py
+```
+
+### Evaluate 
+
+The evaluation metrics currently in use are:
+
+- **Recall@k**: Evaluate the accuracy of information retrieval
+- **Correctness**:The metric evaluates the answer generated by the system to match a given query reference answer.
+
+The golden dataset I chose for evaluation consists of 1000 samples. Each sample includes 3 fields: query, related_documents, answer
+
+
+**Recall@k**
+|Model               | K=3    | K =5   | K=10    |
+|-----------------   |--------|--------|---------|
+|BGE-m3              | 55.11% | 63.43% | 72.18%  |
+|E5                  | 54.61% | 63.53% | 72.02%  |
+|Elasticsearch       | 42.54% | 49.61% | 56.85%  |
+|Ensemble            | 68.38% | 74.85% | 80.66%  |
+|Ensemble + rerank   | 79.82% | 82,82% | 87.66%  |
+
+**Correctness**
+
+Score is rated on a 5-point scale and has an accuracy of 4.27/5
+# DEMO       
+![demo](images/demo.png)

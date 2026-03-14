@@ -1,33 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-.venv
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Data
-data/sessions/
-data/conversations/session_log.jsonl
-*.db
-*.sqlite
-
-# Environment
-.env
-.env.local
-
-# OS
-.DS_Store
-Thumbs.db
-
-docs/
+.venv/
 win_venv/
+docs/
+*/.env
+data/
