@@ -1,6 +1,9 @@
 import os
 
 from celery import Celery
+from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv())
 
 # Celery settings
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379")
@@ -21,7 +24,8 @@ def get_celery_app(name):
         result_serializer='json',
         accept_content=['json'],
         timezone='Asia/Ho_Chi_Minh',  # Set to a city in UTC+7
-        enable_utc=True
+        enable_utc=True,
+        broker_connection_retry_on_startup=True,
     )
 
     # Configure Celery logging
