@@ -25,6 +25,25 @@ E5_COLLECTION = COLLECTIONS[1]
 
 DENSE_DIM = 1024  # multilingual-e5-large output dimension
 
+
+def _detect_device() -> str:
+    """Return 'cuda' if a CUDA GPU is available, otherwise 'cpu'."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            name = torch.cuda.get_device_name(0)
+            vram = torch.cuda.get_device_properties(0).total_memory / 1024 ** 3
+            print(f"[Device] GPU detected: {name} ({vram:.1f} GB VRAM) — using CUDA")
+            return "cuda"
+        print("[Device] No CUDA GPU detected — falling back to CPU (ingestion will be slow)")
+        return "cpu"
+    except ImportError:
+        print("[Device] torch not installed — using CPU")
+        return "cpu"
+
+
+DEVICE = _detect_device()
+
 CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints")
 
 
@@ -87,7 +106,7 @@ def ingest(csv_path: str, batch_size: int = 64):
     client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
     create_collection_if_needed(client, E5_COLLECTION)
 
-    model = SentenceTransformer("intfloat/multilingual-e5-large", device="cuda:0")
+    model = SentenceTransformer("intfloat/multilingual-e5-large", device=DEVICE)
     df = pd.read_csv(csv_path)
     print(f"Loaded {len(df)} rows from {csv_path}")
 
