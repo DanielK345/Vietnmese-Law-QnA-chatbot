@@ -34,7 +34,7 @@ fi
 if [ "$CELERY_ENABLED" = "true" ]; then
     echo "[entrypoint] Production mode — uvicorn + Celery worker (single container)"
     python src/app.py &
-    celery -A src.tasks.celery_app worker --loglevel=info
+    celery -A tasks.celery_app worker --loglevel=info
 else
     echo "[entrypoint] Uvicorn-only mode (CELERY_ENABLED=false) — no Celery worker"
     python src/app.py
