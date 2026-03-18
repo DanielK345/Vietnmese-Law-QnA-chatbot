@@ -27,7 +27,7 @@ if not CELERY_ENABLED:
 combined_search_instance = CombinedSearch()
 _RERANKER_PATH = os.getenv(
     "RERANKER_MODEL_PATH",
-    "/home/ivirse/ivirse_all_data/namnt/soict/checkpoint/rerank/bge_v2_part2/checkpoint-225000",
+    "BAAI/bge-reranker-v2-m3",
 )
 reranker_instance = BGEReranker(model_name=_RERANKER_PATH, use_fp16=True)
 
