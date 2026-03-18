@@ -1,8 +1,8 @@
 
 from qdrant_client import QdrantClient, models
-from hard_negative_bge_round1 import QdrantSearch_bge
-from hard_negative_e5 import QdrantSearch_e5
-from hard_negative_bge_round1 import convert_to_list, convert_str_to_list, split_text_keeping_sentences
+from retrieval.finetune_reranker.hard_negative_bge_round1 import QdrantSearch_bge
+from retrieval.finetune_reranker.hard_negative_e5 import QdrantSearch_e5
+from retrieval.finetune_reranker.hard_negative_bge_round1 import convert_to_list, convert_str_to_list, split_text_keeping_sentences
 import os
 import pandas as pd
 import numpy as np
@@ -11,7 +11,7 @@ import tqdm
 import pickle
 
 class QuestionInference:
-    def __init__(self, csv_path: str, save_pair_path: str, qdrant_search_bge: QdrantSearch_bge, qdrant_search_e5: QdrantSearch_e5, qdrant_search_jina: QdrantSearch_jina):
+    def __init__(self, csv_path: str, save_pair_path: str, qdrant_search_bge: QdrantSearch_bge, qdrant_search_e5: QdrantSearch_e5, qdrant_search_jina=None):
         self.csv_path = csv_path
         self.save_pair_path = save_pair_path
         self.qdrant_search_bge = qdrant_search_bge
@@ -62,24 +62,28 @@ class QuestionInference:
 
 
 if __name__ == "__main__":
-    # Đường dẫn file CSV đầu vào và file TXT đầu ra
-    csv_path = 'train_data.csv'  # Đường dẫn đến file CSV của bạn
-    output_path = '/format_data/rerank'  # Đường dẫn đến file TXT đầu ra
-    
-    # Khởi tạo QdrantSearch
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "backend", ".env"))
+
+    csv_path    = os.getenv("TRAIN_CSV", "train.csv")
+    output_path = os.getenv("OUTPUT_PATH", "./output_data")
+    qdrant_url  = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_key  = os.getenv("QDRANT_API_KEY")
+    collections = [c.strip() for c in os.getenv("COLLECTIONS", "vn_law_bge_m3,vn_law_e5").split(",")]
+
     qdrant_search_bge = QdrantSearch_bge(
-        host="http://localhost:6333",
-        collection_name="law_with_bge_round1",
+        host=qdrant_url,
+        api_key=qdrant_key,
+        collection_name=collections[0],
         model_name="BAAI/bge-m3",
-        use_fp16=True
+        use_fp16=True,
     )
     qdrant_search_e5 = QdrantSearch_e5(
-        host="http://localhost:6333",
-        collection_name="law_with_e5_emb_not_finetune",
+        host=qdrant_url,
+        api_key=qdrant_key,
+        collection_name=collections[1],
         model_name="intfloat/multilingual-e5-large",
-        use_fp16=True
     )
-
     inference = QuestionInference(csv_path, output_path, qdrant_search_bge, qdrant_search_e5)
     inference.load_questions()
     inference.infer_and_save()

@@ -116,7 +116,14 @@ def ingest(csv_path: str, batch_size: int = 64):
     # Chunk all rows
     all_chunks = []  # list of (text, infor_id, chunk_id)
     chunk_id = 0
-    for row in tqdm(df.itertuples(index=False), total=len(df), desc="Chunking"):
+    for row in tqdm(
+        df.itertuples(index=False),
+        total=len(df),
+        desc="Chunking",
+        dynamic_ncols=True,
+        leave=True,
+        mininterval=1.0,
+    ):
         text, cid = row.text, row.cid
         if not isinstance(text, str) or not text.strip():
             continue
@@ -132,7 +139,13 @@ def ingest(csv_path: str, batch_size: int = 64):
         print(f"All {len(all_chunks):,} chunks already ingested — nothing to do.")
         return
 
-    for i in tqdm(range(start_from, len(all_chunks), batch_size), desc="Encoding & upserting"):
+    for i in tqdm(
+        range(start_from, len(all_chunks), batch_size),
+        desc="Encoding & upserting",
+        dynamic_ncols=True,
+        leave=True,
+        mininterval=2.0,
+    ):
         batch = all_chunks[i : i + batch_size]
         texts = [c[0] for c in batch]
 

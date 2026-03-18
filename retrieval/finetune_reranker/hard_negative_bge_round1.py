@@ -48,8 +48,8 @@ def split_text_keeping_sentences(text, max_word_count):
     return chunks
 
 class QdrantSearch_bge:
-    def __init__(self, host: str, collection_name: str, model_name: str, use_fp16: bool = True):
-        self.client = QdrantClient(host)
+    def __init__(self, host: str, collection_name: str, model_name: str, use_fp16: bool = True, api_key: str = None):
+        self.client = QdrantClient(url=host, api_key=api_key)
         self.collection_name = collection_name
         self.model = BGEM3FlagModel(model_name, use_fp16=use_fp16)
         
@@ -136,18 +136,22 @@ class QuestionInference:
 
 
 if __name__ == "__main__":
-    # Đường dẫn file CSV đầu vào và file TXT đầu ra
-    csv_path = 'train.csv'  # Đường dẫn đến file CSV của bạn
-    output_path = '...'  # Đường dẫn đến file TXT đầu ra
-    
-    # Khởi tạo QdrantSearch
-    qdrant_search = QdrantSearch(
-        host="http://localhost:6333",
-        collection_name="law_with_bge_round1",
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "backend", ".env"))
+
+    csv_path    = os.getenv("TRAIN_CSV", "train.csv")
+    output_path = os.getenv("OUTPUT_PATH", "./output_data")
+    qdrant_url  = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_key  = os.getenv("QDRANT_API_KEY")
+    collections = [c.strip() for c in os.getenv("COLLECTIONS", "vn_law_bge_m3,vn_law_e5").split(",")]
+
+    qdrant_search = QdrantSearch_bge(
+        host=qdrant_url,
+        api_key=qdrant_key,
+        collection_name=collections[0],
         model_name="BAAI/bge-m3",
-        use_fp16=True
+        use_fp16=True,
     )
-    # # Khởi tạo và thực thi quá trình infer
     inference = QuestionInference(csv_path, output_path, qdrant_search)
     inference.load_questions()
     inference.infer_and_save()
