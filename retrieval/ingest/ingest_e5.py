@@ -8,10 +8,10 @@ import argparse
 import json
 import os
 import re
+import time
 import uuid
 
 import pandas as pd
-from tqdm import tqdm
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient, models
@@ -102,6 +102,15 @@ def create_collection_if_needed(client: QdrantClient, collection_name: str):
     print(f"Created collection '{collection_name}'.")
 
 
+def _print_progress(desc: str, n: int, total: int, t_start: float) -> None:
+    elapsed = time.time() - t_start
+    pct = 100.0 * n / total if total else 0.0
+    rate = n / elapsed if elapsed > 0 else 0.0
+    eta = (total - n) / rate if rate > 0 else float("inf")
+    eta_str = f"~{int(eta)}s" if eta != float("inf") else "?"
+    print(f"  [{desc}] {n:,}/{total:,} ({pct:.1f}%) | {elapsed:.1f}s elapsed | ETA {eta_str}", flush=True)
+
+
 def ingest(csv_path: str, batch_size: int = 64):
     client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
     create_collection_if_needed(client, E5_COLLECTION)
@@ -113,20 +122,18 @@ def ingest(csv_path: str, batch_size: int = 64):
     # Chunk all rows
     all_chunks = []  # list of (text, infor_id, chunk_id)
     chunk_id = 0
-    for row in tqdm(
-        df.itertuples(index=False),
-        total=len(df),
-        desc="Chunking",
-        dynamic_ncols=True,
-        leave=True,
-        mininterval=1.0,
-    ):
+    n_rows = len(df)
+    _print_every = max(1, n_rows // 20)
+    t_chunk = time.time()
+    for n_row, row in enumerate(df.itertuples(index=False), 1):
         text, cid = row.text, row.cid
         if not isinstance(text, str) or not text.strip():
             continue
         for chunk_text in split_text_keeping_sentences(text, max_word_count=400):
             all_chunks.append((chunk_text, int(cid), chunk_id))
             chunk_id += 1
+        if n_row % _print_every == 0 or n_row == n_rows:
+            _print_progress("Chunking", n_row, n_rows, t_chunk)
 
     print(f"Total chunks to ingest: {len(all_chunks)}")
 
@@ -136,13 +143,10 @@ def ingest(csv_path: str, batch_size: int = 64):
         print(f"All {len(all_chunks):,} chunks already ingested — nothing to do.")
         return
 
-    for i in tqdm(
-        range(start_from, len(all_chunks), batch_size),
-        desc="Encoding & upserting",
-        dynamic_ncols=True,
-        leave=True,
-        mininterval=2.0,
-    ):
+    _batch_indices = range(start_from, len(all_chunks), batch_size)
+    _n_batches = len(_batch_indices)
+    t_encode = time.time()
+    for _batch_num, i in enumerate(_batch_indices, 1):
         batch = all_chunks[i : i + batch_size]
         # E5 uses "passage: " prefix for documents
         texts = ["passage: " + c[0] for c in batch]
@@ -161,6 +165,7 @@ def ingest(csv_path: str, batch_size: int = 64):
 
         client.upsert(collection_name=E5_COLLECTION, points=points)
         save_checkpoint(E5_COLLECTION, i + len(batch), len(all_chunks))
+        _print_progress("Encoding & upserting", _batch_num, _n_batches, t_encode)
 
     # Clear checkpoint on successful completion
     ckpt = _checkpoint_path(E5_COLLECTION)
