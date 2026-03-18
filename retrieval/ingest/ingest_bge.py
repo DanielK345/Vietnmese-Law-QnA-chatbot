@@ -66,7 +66,11 @@ def load_checkpoint(collection_name: str) -> int:
     with open(path) as f:
         data = json.load(f)
     resume_from = data["chunks_done"]
-    print(f"[Checkpoint] Resuming from chunk {resume_from:,} / {data['total_chunks']:,}")
+    total = data["total_chunks"]
+    if total > 0 and resume_from >= total:
+        print(f"[Checkpoint] Already fully ingested ({total:,} chunks) — skipping.")
+    else:
+        print(f"[Checkpoint] Resuming from chunk {resume_from:,} / {total:,}")
     return resume_from
 
 
@@ -176,11 +180,8 @@ def ingest(csv_path: str, batch_size: int = 64):
         save_checkpoint(BGE_COLLECTION, i + len(batch), len(all_chunks))
         _print_progress("Encoding & upserting", _batch_num, _n_batches, t_encode)
 
-    # Clear checkpoint on successful completion
-    ckpt = _checkpoint_path(BGE_COLLECTION)
-    if os.path.exists(ckpt):
-        os.remove(ckpt)
-        print("Checkpoint cleared.")
+    # Mark checkpoint as complete so re-runs skip this collection
+    save_checkpoint(BGE_COLLECTION, len(all_chunks), len(all_chunks))
     print(f"Done — {len(all_chunks)} points upserted into '{BGE_COLLECTION}'.")
 
 
