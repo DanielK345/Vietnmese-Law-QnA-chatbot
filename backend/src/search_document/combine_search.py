@@ -1,16 +1,47 @@
 from search_document.search_with_bge import QdrantSearch_bge
 from search_document.search_with_e5 import QdrantSearch_e5
 from search_document.search_elastic import search_data
+import os
+import logging
+from dotenv import load_dotenv
+from qdrant_client import QdrantClient
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+_collections = [c.strip() for c in os.getenv("COLLECTIONS", "vn_law_bge_m3,vn_law_e5").split(",")]
+BGE_COLLECTION = _collections[0]
+E5_COLLECTION = _collections[1]
+
+# --- Qdrant health check at startup ---
+_MIN_POINTS = 1000
+try:
+    _qclient = QdrantClient(url=os.getenv("QDRANT_URL"), api_key=os.getenv("QDRANT_API_KEY"))
+    for _col in [BGE_COLLECTION, E5_COLLECTION]:
+        try:
+            _info = _qclient.get_collection(_col)
+            _count = _info.points_count
+            if _count == 0:
+                logger.warning(f"Qdrant collection '{_col}' is EMPTY. Run retrieval/ingest.sh to populate it.")
+            elif _count < _MIN_POINTS:
+                logger.warning(f"Qdrant collection '{_col}' has only {_count} points (< {_MIN_POINTS}). Search quality may be poor.")
+            else:
+                logger.info(f"Qdrant collection '{_col}': {_count} points — OK")
+        except Exception as e:
+            logger.warning(f"Qdrant collection '{_col}' not found or unreachable: {e}")
+except Exception as e:
+    logger.warning(f"Could not connect to Qdrant Cloud for health check: {e}")
 
 # Khởi tạo các search class ở cấp module để tái sử dụng
 bge_search_instance = QdrantSearch_bge(
-        collection_name="law_with_bge_round1",
+        collection_name=BGE_COLLECTION,
         model_name="BAAI/bge-m3",
         use_fp16=True
     )
 
 e5_search_instance = QdrantSearch_e5(
-        collection_name="law_with_e5_emb_not_finetune",
+        collection_name=E5_COLLECTION,
         model_name="intfloat/multilingual-e5-large",
         use_fp16=True
     )
