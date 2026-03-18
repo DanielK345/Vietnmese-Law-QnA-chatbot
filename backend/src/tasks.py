@@ -46,25 +46,27 @@ def bot_answer_message(history, message):
     # Use history as openai messages
     session_history = copy(history)
 
-    openai_messages = [
+    gemini_messages = [
             {
                 "role": "system",
-                "content": """Bạn là một trợ lý thông minh, hãy trở lời câu hỏi hiện tại của user dựa trên lịch sử chat và các tài liệu liên quan.
-                            Câu trả lời phải ngắn gọn, chính xác nhưng vẫn đảm bảo đầy đủ các ý chính.
-                NOTE:  - Hãy chỉ trả lời nếu câu trả lời nằm trong tài liệu được truy xuất ra.
-                       - Nếu không tìm thấy câu trả lời trong tài liệu truy xuất ra thì hãy trả về : "no" 
-                        """
+                "content": """Bạn là một chuyên gia tư vấn pháp luật Việt Nam. Hãy trả lời câu hỏi của người dùng
+                dựa trên lịch sử hội thoại và các tài liệu pháp lý được cung cấp.
+                Câu trả lời phải ngắn gọn, chính xác và đầy đủ các ý chính, sử dụng tiếng Việt.
+                LƯU Ý:
+                - Chỉ trả lời nếu câu trả lời có trong tài liệu được cung cấp.
+                - Nếu không tìm thấy câu trả lời trong tài liệu, hãy trả về đúng một từ: "no"
+                """
             },
             *session_history
         ]
 
     # Update documents to prompt
-    rag_openai_messages = openai_messages +  [
+    rag_gemini_messages = gemini_messages +  [
             {"role": "user", "content": gen_doc_prompt(top_docs)},
             {"role": "user", "content": message},
         ]
     
-    assistant_answer = chat_complete(rag_openai_messages)
+    assistant_answer = chat_complete(rag_gemini_messages)
     if assistant_answer != "no":
         logger.info(f"Only call RAG")
         return assistant_answer
@@ -83,7 +85,7 @@ def bot_route_answer_message(history, question):
     if route == "chitchat":
         logger.info(f"Router to chitchat")
         mess_format_openai = [
-            {"role": "system", "content": "Là một trợ lý thông minh, hãy trả lời các câu hỏi này dựa theo tri thức của bạn và hãy trả về kết quả là tiếng Việt."},
+            {"role": "system", "content": "Bạn là một trợ lý thông minh, hãy trả lời các câu hỏi dựa theo tri thức của bạn bằng tiếng Việt."},
             {"role": "user", "content": question}
             ]
         output_chitchat = chat_complete(mess_format_openai)
