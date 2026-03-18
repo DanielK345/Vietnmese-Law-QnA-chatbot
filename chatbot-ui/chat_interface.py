@@ -1,10 +1,16 @@
 import json
 import logging
+import os
 import time
 import requests
+from dotenv import load_dotenv
 
 import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+load_dotenv()
+_BACKEND_PORT = os.getenv("PORT", "8002")
+_BACKEND_URL = f"http://127.0.0.1:{_BACKEND_PORT}"
 
 
 st.title("🤖 Chatbot Interface")
@@ -22,7 +28,7 @@ use_model = "gemini" if model_choice.startswith("Gemini") else "finetuned"
 # Sync model choice with backend
 try:
     requests.post(
-        "http://127.0.0.1:8002/model/switch",
+        f"{_BACKEND_URL}/model/switch",
         json={"model": use_model},
         timeout=3,
     )
@@ -31,7 +37,7 @@ except Exception:
 
 # Show current backend model status
 try:
-    status_resp = requests.get("http://127.0.0.1:8002/model/status", timeout=3)
+    status_resp = requests.get(f"{_BACKEND_URL}/model/status", timeout=3)
     if status_resp.status_code == 200:
         status = status_resp.json()
         st.sidebar.info(f"Active model: **{status['model']}**")
@@ -45,7 +51,7 @@ user_id = "1"
 
 
 def send_user_request(text):
-    url = f"http://127.0.0.1:8002/chat/complete"
+    url = f"{_BACKEND_URL}/chat/complete"
 
     payload = json.dumps({
         "user_message": text,
@@ -64,7 +70,7 @@ def send_user_request(text):
 
 
 def get_bot_response(request_id):
-    url = f"http://127.0.0.1:8002/chat/complete_v2/{request_id}"
+    url = f"{_BACKEND_URL}/chat/complete_v2/{request_id}"
 
     response = requests.request("GET", url, headers={}, data="", timeout=30)
     if response.status_code != 200:
