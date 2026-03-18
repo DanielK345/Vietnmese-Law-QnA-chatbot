@@ -23,6 +23,7 @@ import time
 from collections import defaultdict
 
 import pandas as pd
+from qdrant_client import QdrantClient
 
 # ---------------------------------------------------------------------------
 # Path setup — add backend/src so search_document imports resolve
@@ -36,6 +37,39 @@ load_dotenv(os.path.join(ROOT, "backend", ".env"))
 
 from search_document.search_with_bge import QdrantSearch_bge  # noqa: E402
 from search_document.search_with_e5 import QdrantSearch_e5    # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Qdrant collection health check
+# ---------------------------------------------------------------------------
+
+def check_collections(collections: list[str]) -> None:
+    """
+    Warn if any collection is not GREEN. RED means the collection is still
+    optimizing after ingestion — queries will be slow or will time out.
+    Exits if *all* requested collections are RED.
+    """
+    qdrant_url = os.getenv("QDRANT_URL")
+    qdrant_key = os.getenv("QDRANT_API_KEY")
+    try:
+        client = QdrantClient(url=qdrant_url, api_key=qdrant_key, timeout=15)
+        red = []
+        for col in collections:
+            info = client.get_collection(col)
+            status = str(info.status).lower()
+            if "green" in status:
+                print(f"  [Qdrant] {col}: GREEN ({info.points_count:,} points)")
+            else:
+                print(f"  [Qdrant] WARNING — {col}: {status.upper()} "
+                      f"({info.points_count:,} points). "
+                      "Collection may still be optimizing; queries may time out.")
+                red.append(col)
+        if len(red) == len(collections):
+            print("\nERROR: all collections are non-GREEN. Wait for Qdrant to finish "
+                  "optimizing before running eval.")
+            sys.exit(1)
+    except Exception as e:
+        print(f"  [Qdrant] Could not check collection health: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -119,9 +153,30 @@ def evaluate(
         query = sample["query"]
         relevant = sample["relevant_cids"]
 
-        bge_res = get_infor_ids(bge_search.search(query, limit=max_k))
-        e5_res  = get_infor_ids(e5_search.search(query, limit=max_k))
-        comb    = combined_ids(bge_res, e5_res)
+        # Retry each search up to 3 times on timeout
+        for attempt in range(3):
+            try:
+                bge_res = get_infor_ids(bge_search.search(query, limit=max_k))
+                break
+            except Exception as e:
+                if attempt == 2:
+                    print(f"  [warn] BGE search failed after 3 attempts: {e}")
+                    bge_res = []
+                else:
+                    time.sleep(2 ** attempt)
+
+        for attempt in range(3):
+            try:
+                e5_res = get_infor_ids(e5_search.search(query, limit=max_k))
+                break
+            except Exception as e:
+                if attempt == 2:
+                    print(f"  [warn] E5 search failed after 3 attempts: {e}")
+                    e5_res = []
+                else:
+                    time.sleep(2 ** attempt)
+
+        comb = combined_ids(bge_res, e5_res)
 
         for k in k_values:
             hits["bge"][k]      += recall_at_k(bge_res, relevant, k)
@@ -224,6 +279,10 @@ def main() -> None:
     print(f"  BGE collection: {bge_collection}")
     print(f"  E5  collection: {e5_collection}")
     print("=" * 60)
+
+    # ---- collection health check ----
+    print("\nChecking Qdrant collection status...")
+    check_collections([bge_collection, e5_collection])
 
     # ---- load data ----
     print("\nLoading eval samples...")

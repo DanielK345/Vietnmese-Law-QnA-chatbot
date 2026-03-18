@@ -10,7 +10,7 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
 class QdrantSearch_bge:
     def __init__(self, collection_name: str, model_name: str, use_fp16: bool = True):
-        self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+        self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=60)
         self.collection_name = collection_name
         self.model = BGEM3FlagModel(model_name, use_fp16=use_fp16)
         

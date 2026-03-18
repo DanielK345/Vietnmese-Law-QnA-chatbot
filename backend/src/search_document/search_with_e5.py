@@ -18,7 +18,7 @@ def _detect_device() -> str:
 
 class QdrantSearch_e5:
     def __init__(self, collection_name: str, model_name: str, use_fp16: bool = True):
-        self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+        self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=60)
         self.collection_name = collection_name
         self.model = SentenceTransformer(model_name, device=_detect_device())
         
