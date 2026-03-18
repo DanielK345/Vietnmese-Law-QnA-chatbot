@@ -6,7 +6,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain.agents import create_agent
+from langgraph.prebuilt import create_react_agent
 
 load_dotenv(find_dotenv())
 
@@ -33,7 +33,7 @@ def _build_agent(use_gemini: bool):
             api_key="not-needed",
             model=VLLM_MODEL_NAME,
         )
-    return create_agent(llm, [tavily_tool])
+    return create_react_agent(llm, [tavily_tool])
 
 
 def _convert_to_langchain_messages(messages):
