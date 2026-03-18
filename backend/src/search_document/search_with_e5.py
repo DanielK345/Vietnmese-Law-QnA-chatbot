@@ -8,11 +8,19 @@ load_dotenv()
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 
+def _detect_device() -> str:
+    try:
+        import torch
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        return "cpu"
+
+
 class QdrantSearch_e5:
     def __init__(self, collection_name: str, model_name: str, use_fp16: bool = True):
         self.client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
         self.collection_name = collection_name
-        self.model = SentenceTransformer(model_name, device="cuda:0")
+        self.model = SentenceTransformer(model_name, device=_detect_device())
         
     def encode_query(self, query_text: str):
         """Encode the query text into dense and sparse vectors"""

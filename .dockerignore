@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.venv/
+win_venv/
+venv/
+env/
+
+# Data & models (large — mount via volume instead)
+data/
+*.csv
+*.jsonl
+logs/
+retrieval/ingest/checkpoints/
+retrieval/eval/
+
+# Git
+.git/
+.gitignore
+
+# Notebooks
+notebooks/
+*.ipynb
+
+# Dev / IDE
+.vscode/
+.idea/
+*.env.local
+
+# Docs
+docs/
+*.md
+!backend/requirements.txt
+
+# Test
+tests/
+
+# Old Vietnamese-Law sub-project (separate repo)
+Vietnamese-Law-Question-Answering-system/
+
+# Streamlit app (separate service)
+streamlit_app.py
+Dockerfile.streamlit

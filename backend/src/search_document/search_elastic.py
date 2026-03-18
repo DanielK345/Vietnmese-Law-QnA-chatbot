@@ -1,14 +1,15 @@
 import json
+import os
+from dotenv import load_dotenv
 from elasticsearch import Elasticsearch
 
+load_dotenv()
 
-# Kết nối tới Elasticsearch
+_ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
+
+# Connect to Elasticsearch
 try:
-    es = Elasticsearch(
-        ["http://localhost:9200"],
-    )
-    
-    # Kiểm tra kết nối
+    es = Elasticsearch([_ES_URL])
     if es.ping():
         print("Connected to Elasticsearch!")
     else:

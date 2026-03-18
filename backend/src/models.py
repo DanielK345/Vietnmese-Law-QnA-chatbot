@@ -1,16 +1,21 @@
 import logging
+import os
 from pymongo import MongoClient
 from datetime import datetime
+from dotenv import load_dotenv
 
 from cache import get_conversation_id
 from utils import setup_logging
 
+load_dotenv()
 setup_logging()
 logger = logging.getLogger(__name__)
 
 # MongoDB client setup
-client = MongoClient("mongodb://10.0.0.138:27017/")
-db = client["final_project"]
+_MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
+_MONGODB_DB  = os.getenv("MONGODB_DB", "final_project")
+client = MongoClient(_MONGODB_URL)
+db = client[_MONGODB_DB]
 chat_conversations = db["history_chat"]
 
 class ChatConversation:

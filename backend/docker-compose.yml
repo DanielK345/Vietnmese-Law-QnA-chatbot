@@ -1,0 +1,138 @@
+# Vietnamese Law Q&A — Backend Stack
+#
+# Usage:
+#   docker compose up --build          # start all services
+#   docker compose up api worker       # skip infra (if already running externally)
+#   docker compose up api -e DEBUG=true  # hot-reload dev mode (no worker)
+#
+# Before starting:
+#   1. Populate backend/.env with your API keys (Gemini, Tavily, Qdrant)
+#   2. Set RERANKER_HOST_PATH in .env to your local reranker checkpoint folder
+#      e.g.  RERANKER_HOST_PATH=/data/checkpoints/bge-reranker
+
+name: vn-law-backend
+
+# ── Shared build definition ────────────────────────────────────────────────────
+x-backend-build: &backend-build
+  build:
+    context: .           # backend/ directory is the build context
+    dockerfile: Dockerfile
+
+# ── Infrastructure URL overrides (service names, not localhost) ────────────────
+x-infra-env: &infra-env
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  CELERY_BROKER_URL: redis://redis:6379
+  CELERY_RESULT_BACKEND: redis://redis:6379
+  MONGODB_URL: mongodb://mongo:27017/
+  ELASTICSEARCH_URL: http://elasticsearch:9200
+
+services:
+
+  # ── FastAPI ──────────────────────────────────────────────────────────────────
+  api:
+    <<: *backend-build
+    container_name: vn-law-api
+    env_file: .env                       # API keys, model names, etc.
+    environment:
+      <<: *infra-env
+      CELERY_ENABLED: "true"
+      PORT: "8002"
+    # Override command so entrypoint.sh runs only uvicorn (worker is separate)
+    command: ["bash", "-c", "python src/app.py"]
+    ports:
+      - "${PORT:-8002}:8002"
+    volumes:
+      # Mount reranker checkpoint read-only; set RERANKER_HOST_PATH in .env
+      - ${RERANKER_HOST_PATH:-/tmp}:/models/reranker:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s   # model loading takes time
+
+  # ── Celery worker ────────────────────────────────────────────────────────────
+  worker:
+    <<: *backend-build
+    container_name: vn-law-worker
+    env_file: .env
+    environment:
+      <<: *infra-env
+      CELERY_ENABLED: "true"
+    # Pass "worker" arg — entrypoint.sh detects it and runs celery only
+    command: ["worker"]
+    volumes:
+      - ${RERANKER_HOST_PATH:-/tmp}:/models/reranker:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Redis (Celery broker + result backend) ────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: vn-law-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MongoDB (conversation history) ───────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: vn-law-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ── Elasticsearch (lexical search) ───────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:8.13.4
+    container_name: vn-law-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false      # disable auth for local dev
+      - ES_JAVA_OPTS=-Xms512m -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qv '\"status\":\"red\"'"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+volumes:
+  redis_data:
+  mongo_data:
+  es_data:

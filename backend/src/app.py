@@ -1,10 +1,12 @@
 import logging
+import os
 import time
 from typing import Dict, Optional
 from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import asyncio
+from dotenv import load_dotenv
 from utils import setup_logging
 from tasks import llm_handle_message
 from brain import set_use_gemini, get_use_gemini
@@ -12,12 +14,22 @@ from brain import set_use_gemini, get_use_gemini
 from search_document.combine_search import CombinedSearch
 from search_document.rerank import BGEReranker
 
+load_dotenv()
 setup_logging()
 logger = logging.getLogger(__name__)
 
+# When CELERY_ENABLED=false the app runs fully synchronous — no Redis/Celery required.
+CELERY_ENABLED = os.getenv("CELERY_ENABLED", "true").strip().lower() == "true"
+if not CELERY_ENABLED:
+    logger.info("[startup] CELERY_ENABLED=false — running in uvicorn-only (sync) mode")
+
 # init retriever and reranker
 combined_search_instance = CombinedSearch()
-reranker_instance = BGEReranker(model_name="/home/ivirse/ivirse_all_data/namnt/soict/checkpoint/rerank/bge_v2_part2/checkpoint-225000", use_fp16=True)
+_RERANKER_PATH = os.getenv(
+    "RERANKER_MODEL_PATH",
+    "/home/ivirse/ivirse_all_data/namnt/soict/checkpoint/rerank/bge_v2_part2/checkpoint-225000",
+)
+reranker_instance = BGEReranker(model_name=_RERANKER_PATH, use_fp16=True)
 
 
 app = FastAPI()
@@ -90,7 +102,8 @@ async def complete(data: CompleteRequest):
     elif data.use_model == "gemini":
         set_use_gemini(True)
 
-    if data.sync_request:
+    # Run sync when Celery is disabled OR caller explicitly requests sync
+    if not CELERY_ENABLED or data.sync_request:
         response = llm_handle_message(bot_id, user_id, user_message)
         return {"response": str(response)}
     else:
@@ -100,6 +113,11 @@ async def complete(data: CompleteRequest):
 
 @app.get("/chat/complete_v2/{task_id}")
 async def get_response(task_id: str):
+    if not CELERY_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="Task polling is unavailable: CELERY_ENABLED=false. Use sync_request=true instead.",
+        )
     start_time = time.time()
     timeout = 60  # Timeout sau 60 giây
     polling_interval = 0.1  # Thời gian chờ giữa mỗi lần kiểm tra (100ms)
@@ -135,5 +153,13 @@ async def get_response(task_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8002, workers=1, log_level="info")
+    _debug = os.getenv("DEBUG", "false").strip().lower() == "true"
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8002")),
+        workers=1,  # reload requires workers=1
+        reload=_debug,
+        log_level="debug" if _debug else "info",
+    )
 
