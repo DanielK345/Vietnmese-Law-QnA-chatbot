@@ -67,7 +67,7 @@ def bot_answer_message(history, message):
         ]
     
     assistant_answer = chat_complete(rag_gemini_messages)
-    if assistant_answer != "no":
+    if assistant_answer.strip().lower() != "no":
         logger.info(f"Only call RAG")
         return assistant_answer
     else:

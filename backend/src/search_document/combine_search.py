@@ -3,6 +3,7 @@ from search_document.search_with_e5 import QdrantSearch_e5
 from search_document.search_elastic import search_data
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 
@@ -60,7 +61,7 @@ class CombinedSearch:
 
     def search(self, query_text, top_k=30):
         """
-        Perform a combined search across BGE, E5, and Elasticsearch.
+        Perform a combined search across BGE, E5, and Elasticsearch in parallel.
 
         Args:
             query_text (str): The query string.
@@ -69,26 +70,44 @@ class CombinedSearch:
         Returns:
             list: Combined search results.
         """
-        # Perform searches
-        bge_results = self.bge_search.search(query_text, limit=top_k)
-        e5_results = self.e5_search.search(query_text, limit=top_k)
-        elastic_results = search_data(self.elastic_index, query_text, top_k=self.elastic_top_k)
+        def _bge(): return self.bge_search.search(query_text, limit=top_k)
+        def _e5():  return self.e5_search.search(query_text, limit=top_k)
+        def _es():  return search_data(self.elastic_index, query_text, top_k=self.elastic_top_k)
+
+        bge_results = e5_results = None
+        elastic_results = []
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(_bge): "bge",
+                       executor.submit(_e5):  "e5",
+                       executor.submit(_es):  "es"}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    result = future.result()
+                    if key == "bge":
+                        bge_results = result
+                    elif key == "e5":
+                        e5_results = result
+                    else:
+                        elastic_results = result
+                except Exception as e:
+                    logger.warning(f"Search '{key}' failed: {e}")
 
         # Combine and normalize results
         combined_results = []
 
-        # Process BGE results
-        for result in bge_results.points:
-            combined_results.append(result.payload["text"])
+        if bge_results is not None:
+            for result in bge_results.points:
+                combined_results.append(result.payload["text"])
 
-        # Process E5 results
-        for result in e5_results.points:
-            combined_results.append(result.payload["text"])
+        if e5_results is not None:
+            for result in e5_results.points:
+                combined_results.append(result.payload["text"])
 
-        # Process Elasticsearch results
         for result in elastic_results:
             combined_results.append(result['text'])
-            
+
         combined_results = list(set(combined_results))
 
         return combined_results
