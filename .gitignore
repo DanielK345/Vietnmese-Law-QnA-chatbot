@@ -3,3 +3,5 @@ win_venv/
 docs/
 */.env
 data/
+*/checkpoints
+*/__pycache__/
