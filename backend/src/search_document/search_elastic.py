@@ -7,18 +7,22 @@ load_dotenv()
 
 _ES_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 
-# Connect to Elasticsearch
+# Connect to Elasticsearch — failure is non-fatal; ES is optional.
+es = None
 try:
-    es = Elasticsearch([_ES_URL])
-    if es.ping():
+    _client = Elasticsearch([_ES_URL])
+    if _client.ping():
+        es = _client
         print("Connected to Elasticsearch!")
     else:
-        print("Could not connect to Elasticsearch.")
-except ConnectionError as e:
-    print(f"Error connecting to Elasticsearch: {e}")
+        print("Could not connect to Elasticsearch — ES search will be skipped.")
+except Exception as e:
+    print(f"Elasticsearch unavailable ({e}) — ES search will be skipped.")
 
 # Hàm tìm kiếm dữ liệu trong Elasticsearch
 def search_data(index_name, query, top_k=10):
+    if es is None:
+        return []
     # Thực hiện tìm kiếm với giới hạn top_k
     response = es.search(
         index=index_name,

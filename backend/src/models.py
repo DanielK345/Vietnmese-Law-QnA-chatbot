@@ -14,9 +14,18 @@ logger = logging.getLogger(__name__)
 # MongoDB client setup
 _MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
 _MONGODB_DB  = os.getenv("MONGODB_DB", "final_project")
-client = MongoClient(_MONGODB_URL)
-db = client[_MONGODB_DB]
-chat_conversations = db["history_chat"]
+
+chat_conversations = None
+try:
+    client = MongoClient(_MONGODB_URL, serverSelectionTimeoutMS=3000)
+    client.admin.command("ping")  # fast fail at startup
+    db = client[_MONGODB_DB]
+    chat_conversations = db["history_chat"]
+    logger.info("MongoDB connected.")
+except Exception as e:
+    logger.warning(f"MongoDB unavailable ({e}) — running without conversation history.")
+    client = None
+    db = None
 
 class ChatConversation:
     def __init__(self, conversation_id, bot_id, user_id, message, is_request=True, completed=False, created_at=None, updated_at=None):
@@ -88,9 +97,10 @@ def convert_conversation_to_openai_messages(user_conversations):
 
 
 def update_chat_conversation(bot_id: str, user_id: str, message: str, is_request: bool = True):
-    # Step 1: Create a new ChatConversation instance
     conversation_id = get_conversation_id(bot_id, user_id)
-
+    if chat_conversations is None:
+        logger.warning("MongoDB unavailable — skipping conversation persistence.")
+        return conversation_id
     new_conversation = ChatConversation(
         conversation_id=conversation_id,
         bot_id=bot_id,
@@ -109,5 +119,7 @@ def update_chat_conversation(bot_id: str, user_id: str, message: str, is_request
 
 
 def get_conversation_messages(conversation_id):
+    if chat_conversations is None:
+        return convert_conversation_to_openai_messages([])
     user_conversations = load_conversation(conversation_id)
     return convert_conversation_to_openai_messages(user_conversations)
