@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient, models
 
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "backend", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "backend", ".env"))
 
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
@@ -44,7 +44,7 @@ def _detect_device() -> str:
 
 DEVICE = _detect_device()
 
-CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints")
+CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "checkpoints")
 
 
 def _checkpoint_path(collection_name: str) -> str:

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Ingest corpus data into both Qdrant Cloud collections.
-# Run from the repository root:  sh retrieval/ingest.sh
+# Run from the repository root:  sh retrieval/ingest/ingest.sh
 
 set -e
 
@@ -37,11 +37,11 @@ cd "$(dirname "$0")"
 
 echo ""
 echo ">>> [1/2] Ingesting into BGE-m3 collection..."
-"$PYTHON" ingest_bge.py --csv "../$CSV_PATH" --batch-size "$BATCH_SIZE"
+"$PYTHON" ingest_bge.py --csv "../../$CSV_PATH" --batch-size "$BATCH_SIZE"
 
 echo ""
 echo ">>> [2/2] Ingesting into E5 collection..."
-"$PYTHON" ingest_e5.py --csv "../$CSV_PATH" --batch-size "$BATCH_SIZE"
+"$PYTHON" ingest_e5.py --csv "../../$CSV_PATH" --batch-size "$BATCH_SIZE"
 
 echo ""
 echo "=== All ingestion complete ==="
